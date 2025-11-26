@@ -1,0 +1,243 @@
+name: 自动发布北森iTalent插件到NPM和GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: '版本类型'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+permissions:
+  id-token: write  # Required for OIDC
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: 正式环境
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          always-auth: true
+
+      - name: 更新npm版本
+        run: npm install -g npm@latest
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行代码检查
+        run: npm run lint
+
+      - name: 构建项目
+        run: npm run build --if-present
+
+      - name: 配置Git用户
+        run: |
+          git config --local user.email "luka.cat.mimi@gmail.com"
+          git config --local user.name "luka"
+
+      - name: 更新版本号（手动触发）
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $NEW_VERSION"
+          git tag $NEW_VERSION
+          git push origin HEAD --follow-tags
+
+      - name: 获取版本号（标签触发）
+        if: github.event_name == 'push'
+        run: |
+          echo "NEW_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: 验证构建产物
+        run: |
+          echo "检查dist目录内容:"
+          ls -la dist/
+          echo "检查主要文件是否存在:"
+          test -f dist/nodes/ITalent/ITalent.node.js && echo "✅ ITalent.node.js 存在"
+          test -f dist/credentials/ITalentApi.credentials.js && echo "✅ ITalentApi.credentials.js 存在"
+          test -f dist/package.json && echo "✅ dist/package.json 存在"
+
+      - name: 发布到NPM（带可信任发布）
+        run: |
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: 生成变更日志
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            # 如果存在CHANGELOG.md，尝试提取当前版本的变更内容
+            CHANGELOG=$(sed -n "/## \[${{ env.NEW_VERSION }}\]/,/## \[/p" CHANGELOG.md | head -n -1)
+            if [ -z "$CHANGELOG" ]; then
+              # 如果没找到对应版本的变更日志，生成基于git提交的变更日志
+              CHANGELOG=$(cat << 'EOL'
+          🎉 版本 ${{ env.NEW_VERSION }} 发布
+
+          ### 📝 本次更新
+          EOL
+              )
+
+              # 获取上一个标签
+              LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+              if [ -n "$LAST_TAG" ]; then
+                echo "从标签 $LAST_TAG 到当前版本的变更:" >> temp_changelog.txt
+                echo "" >> temp_changelog.txt
+
+                # 获取提交历史并分类
+                git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | while read -r commit_msg; do
+                  case "$commit_msg" in
+                    feat*|feature*) echo "- ✨ $commit_msg" >> temp_changelog.txt ;;
+                    fix*|bugfix*) echo "- 🐛 $commit_msg" >> temp_changelog.txt ;;
+                    docs*) echo "- 📚 $commit_msg" >> temp_changelog.txt ;;
+                    style*) echo "- 💄 $commit_msg" >> temp_changelog.txt ;;
+                    refactor*) echo "- ♻️ $commit_msg" >> temp_changelog.txt ;;
+                    test*) echo "- ✅ $commit_msg" >> temp_changelog.txt ;;
+                    chore*) echo "- 🔧 $commit_msg" >> temp_changelog.txt ;;
+                    *) echo "- 📦 $commit_msg" >> temp_changelog.txt ;;
+                  esac
+                done
+
+                if [ -s temp_changelog.txt ]; then
+                  CHANGELOG="$CHANGELOG
+          $(cat temp_changelog.txt)"
+                  rm -f temp_changelog.txt
+                fi
+              else
+                # 如果是首次发布，显示首次发布信息
+                CHANGELOG="$CHANGELOG
+          - 🎉 首次发布北森iTalent N8N 集成插件
+          - ✨ 完整支持北森iTalent AI面试官API集成
+          - 📦 包含AI面试官模块，支持工作意向题目、作答结果、邀请链接等功能"
+              fi
+
+              CHANGELOG="$CHANGELOG
+
+          ### 📦 安装方式
+          \`\`\`bash
+          npm install @luka-cat-mimi/n8n-nodes-italent
+          \`\`\`
+
+          ### 🔗 相关链接
+          - [📖 使用文档](https://github.com/luka-n8n-nodes/n8n-nodes-italent#readme)
+          - [📦 NPM包](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent)
+          - [🐛 问题反馈](https://github.com/luka-n8n-nodes/n8n-nodes-italent/issues)"
+            fi
+          else
+            # 如果不存在CHANGELOG.md，生成基于git提交的变更日志
+            CHANGELOG="🎉 版本 ${{ env.NEW_VERSION }} 发布
+
+          ### 📝 本次更新"
+
+            # 获取上一个标签
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+            if [ -n "$LAST_TAG" ]; then
+              echo "检测到上一个版本: $LAST_TAG"
+
+              # 获取提交历史并分类
+              HAS_CHANGES=false
+              while read -r commit_msg; do
+                if [ -n "$commit_msg" ]; then
+                  HAS_CHANGES=true
+                  case "$commit_msg" in
+                    feat*|feature*) CHANGELOG="$CHANGELOG
+          - ✨ $commit_msg" ;;
+                    fix*|bugfix*) CHANGELOG="$CHANGELOG
+          - 🐛 $commit_msg" ;;
+                    docs*) CHANGELOG="$CHANGELOG
+          - 📚 $commit_msg" ;;
+                    style*) CHANGELOG="$CHANGELOG
+          - 💄 $commit_msg" ;;
+                    refactor*) CHANGELOG="$CHANGELOG
+          - ♻️ $commit_msg" ;;
+                    test*) CHANGELOG="$CHANGELOG
+          - ✅ $commit_msg" ;;
+                    chore*) CHANGELOG="$CHANGELOG
+          - 🔧 $commit_msg" ;;
+                    *) CHANGELOG="$CHANGELOG
+          - 📦 $commit_msg" ;;
+                  esac
+                fi
+              done << EOF
+          $(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges)
+          EOF
+
+              if [ "$HAS_CHANGES" = false ]; then
+                CHANGELOG="$CHANGELOG
+          - 🔧 版本维护更新"
+              fi
+            else
+              # 首次发布
+              CHANGELOG="$CHANGELOG
+          - 🎉 首次发布北森iTalent N8N 集成插件
+          - ✨ 完整支持北森iTalent AI面试官API集成
+          - 📦 包含AI面试官模块，8个核心操作
+          - ✅ 支持工作意向题目、作答结果、邀请链接、应聘者信息等功能
+          - 🔧 完善的TypeScript类型支持和批处理功能
+          - 🔐 自动管理Access Token和凭证刷新"
+            fi
+
+            CHANGELOG="$CHANGELOG
+
+          ### 📦 安装方式
+          \`\`\`bash
+          npm install @luka-cat-mimi/n8n-nodes-italent
+          \`\`\`
+
+          ### 🔗 相关链接
+          - [📖 使用文档](https://github.com/luka-n8n-nodes/n8n-nodes-italent#readme)
+          - [📦 NPM包](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent)
+          - [🐛 问题反馈](https://github.com/luka-n8n-nodes/n8n-nodes-italent/issues)"
+          fi
+
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 创建GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.NEW_VERSION }}
+          name: ${{ env.NEW_VERSION }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 发布成功通知
+        run: |
+          echo "🎉 发布成功！"
+          echo "📦 NPM包: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent"
+          echo "🚀 GitHub Release: https://github.com/luka-n8n-nodes/n8n-nodes-italent/releases/tag/${{ env.NEW_VERSION }}"
+          echo "📋 安装命令: npm install @luka-cat-mimi/n8n-nodes-italent"

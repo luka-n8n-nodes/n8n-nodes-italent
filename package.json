@@ -1,0 +1,65 @@
+{
+    "name": "@luka-cat-mimi/n8n-nodes-italent",
+    "version": "0.1.0",
+    "description": "北森 iTalent N8N 集成插件",
+    "keywords": [
+        "n8n",
+        "n8n-node",
+        "n8n-community-node-package",
+        "italent",
+        "北森",
+        "HR"
+    ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
+    },
+    "homepage": "https://github.com/luka-n8n-nodes/n8n-nodes-italent#readme",
+    "author": {  
+        "name": "luka-cat",
+        "email": "luka.cat.mimi@gmail.com"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/luka-n8n-nodes/n8n-nodes-italent.git"
+    },
+    "engines": {
+        "node": ">=20.15"
+    },
+    "main": "index.js",
+    "scripts": {
+        "build": "npx rimraf dist && tsc && gulp build:icons",
+        "dev": "tsc --watch",
+        "format": "prettier credentials nodes --write",
+        "lint": "eslint \"credentials/**/*.ts\" \"nodes/**/*.ts\" package.json",
+        "lintfix": "eslint \"credentials/**/*.ts\" \"nodes/**/*.ts\" package.json --fix",
+        "prepublishOnly": "npm run build && npm run lint"
+    },
+    "files": [
+        "dist"
+    ],
+    "n8n": {
+        "n8nNodesApiVersion": 1,
+        "credentials": [
+            "dist/credentials/ITalentApi.credentials.js"
+        ],
+        "nodes": [
+            "dist/nodes/ITalent/ITalent.node.js"
+        ]
+    },
+    "devDependencies": {
+        "@types/node": "^22.13.1",
+        "@typescript-eslint/parser": "~8.32.0",
+        "eslint": "^8.57.0",
+        "eslint-plugin-n8n-nodes-base": "^1.16.3",
+        "glob": "^10.4.5",
+        "gulp": "^5.0.0",
+        "prettier": "^3.5.3",
+        "require-glob": "^4.1.0",
+        "typescript": "^5.8.2"
+    },
+    "peerDependencies": {
+        "n8n-workflow": "*"
+    }
+}
