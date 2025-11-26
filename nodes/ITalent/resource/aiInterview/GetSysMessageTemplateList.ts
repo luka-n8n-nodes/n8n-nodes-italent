@@ -48,7 +48,10 @@ const GetSysMessageTemplateListOperate: ResourceOperations = {
 		};
 
 		if (!returnAll) {
-			return await fetchPage();
+			const response = await fetchPage();
+			const data = getValueByPath(response, DEFAULT_DATA_PATH);
+			// 如果存在 items 字段，返回 items 数组，否则返回原始响应
+			return data !== undefined ? data : response;
 		}
 
 		// 获取所有分页数据（使用内置配置）
