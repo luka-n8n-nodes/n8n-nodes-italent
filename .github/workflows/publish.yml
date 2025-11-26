@@ -16,8 +16,9 @@ on:
           - minor
           - major
 permissions:
+  contents: write  # Required for creating releases
+  packages: write
   id-token: write  # Required for OIDC
-  contents: read
 
 jobs:
   publish:
@@ -58,7 +59,7 @@ jobs:
       - name: 配置Git用户
         run: |
           git config --local user.email "luka.cat.mimi@gmail.com"
-          git config --local user.name "luka"
+          git config --local user.name "luka-cat"
 
       - name: 更新版本号（手动触发）
         if: github.event_name == 'workflow_dispatch'
@@ -224,7 +225,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: 创建GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.NEW_VERSION }}
           name: ${{ env.NEW_VERSION }}
@@ -232,6 +233,7 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
