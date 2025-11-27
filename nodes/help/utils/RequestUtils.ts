@@ -19,10 +19,10 @@ class RequestUtils {
 			return response;
 		}
 
-		const { success, message, data, code } = response || {};
+		const { data, code, message } = response || {};
 		
 		// 正常响应（北森API通常使用 success 字段标识成功）
-		if (success === true || success === undefined) {
+		if (code == 200) {
 			// 返回 data 字段或原始响应
 			return data !== undefined ? data : response;
 		}
@@ -81,10 +81,15 @@ class RequestUtils {
 		try {
 			// 首次请求
 			const response = await RequestUtils.originRequest.call(this, options);
-			const { code } = response || {};
+			const { code, message } = response || {};
 
-			// 处理 token 过期（北森API通常使用特定的错误代码，如 401 或特定的 code）
-			if (code === 'UNAUTHORIZED' || code === 401 || code === '401') {
+			// 处理 token 过期：检查响应中的 code 或 message
+			const isUnauthorized = 
+				code === 'UNAUTHORIZED' || 
+				code === 401 || 
+				message === 'un-authorized';
+
+			if (isUnauthorized) {
 				// 重新获取 token 后的请求
 				const retryResponse = await RequestUtils.originRequest.call(this, options, true);
 				// 使用统一的响应处理函数，标记为重试请求
@@ -93,8 +98,21 @@ class RequestUtils {
 
 			// 使用统一的响应处理函数
 			return RequestUtils.handleResponse(this, response);
-		} catch (error) {
-			// 处理真正的网络错误或其他异常（非200响应）
+		} catch (error: any) {
+			// 处理 HTTP 401 状态码（网络层面的未授权错误）
+			if (error?.statusCode === 401 || error?.response?.statusCode === 401) {
+				// 重新获取 token 后的请求
+				try {
+					const retryResponse = await RequestUtils.originRequest.call(this, options, true);
+					// 使用统一的响应处理函数，标记为重试请求
+					return RequestUtils.handleResponse(this, retryResponse, true);
+				} catch (retryError) {
+					// 重试也失败，抛出原始错误
+					throw error;
+				}
+			}
+
+			// 处理真正的网络错误或其他异常（非401错误）
 			throw error;
 		}
 	}
