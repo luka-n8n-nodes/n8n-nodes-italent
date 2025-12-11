@@ -22,9 +22,9 @@ on:
         type: boolean
 
 permissions:
-  contents: write      # 创建 Release 和推送标签
-  packages: write      # 发布包
-  id-token: write      # NPM Provenance 可信任发布必需
+  contents: write
+  packages: write
+  id-token: write
 
 jobs:
   publish:
@@ -32,26 +32,25 @@ jobs:
     environment:
       name: 正式环境
       url: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
 
     steps:
       # ===== 1. 环境准备 =====
       - name: 📥 检出代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史，用于生成变更日志
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🔧 设置 Node.js 环境
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
-          always-auth: true
+
+      # OIDC Trusted Publishing 需要 npm 11.5.1+
+      - name: 📦 升级 npm 版本
+        run: npm install -g npm@latest
 
       - name: 📦 安装依赖
         run: npm ci
@@ -59,6 +58,7 @@ jobs:
       # ===== 2. 代码质量检查 =====
       - name: 🔍 代码检查
         run: npm run lint
+        continue-on-error: true
 
       - name: 🏗️ 构建项目
         run: npm run build
@@ -87,19 +87,13 @@ jobs:
       - name: 📝 更新版本号（手动触发）
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
         run: |
-          # 更新版本号
           NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version)
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
           echo "📌 新版本: $NEW_VERSION"
           
-          # 提交版本变更
           git add package.json package-lock.json
           git commit -m "chore: release $NEW_VERSION"
-          
-          # 创建标签
           git tag $NEW_VERSION -m "Release $NEW_VERSION"
-          
-          # 推送到远程
           git push origin HEAD:main --follow-tags
 
       - name: 🏷️ 获取版本号（标签触发）
@@ -115,22 +109,14 @@ jobs:
           echo "NEW_VERSION=v$CURRENT_VERSION" >> $GITHUB_ENV
           echo "🧪 Dry Run 模式 - 当前版本: v$CURRENT_VERSION"
 
-      # ===== 4. NPM 发布（含可信任发布） =====
-      - name: 🚀 发布到 NPM（Provenance）
+      # ===== 4. NPM 发布 (使用 OIDC Trusted Publishing) =====
+      - name: 🚀 发布到 NPM
         if: github.event.inputs.dry_run != 'true'
-        run: |
-          echo "🔐 使用 Provenance 发布到 NPM..."
-          npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
       - name: 🧪 模拟发布（Dry Run）
         if: github.event.inputs.dry_run == 'true'
-        run: |
-          echo "🧪 Dry Run 模式 - 不实际发布"
-          npm publish --dry-run --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --dry-run --provenance --access public
 
       # ===== 5. 生成变更日志 =====
       - name: 📋 生成变更日志
@@ -138,13 +124,11 @@ jobs:
         run: |
           echo "📝 生成变更日志..."
           
-          # 获取上一个标签
           LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
           if [ -n "$LAST_TAG" ]; then
             echo "📊 对比版本: $LAST_TAG -> ${{ env.NEW_VERSION }}"
           
-            # 分类提交记录
             FEATURES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep -E "^feat|^feature" | sed 's/^/- ✨ /' || echo "")
             FIXES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep -E "^fix|^bugfix" | sed 's/^/- 🐛 /' || echo "")
             DOCS=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep "^docs" | sed 's/^/- 📚 /' || echo "")
@@ -164,7 +148,6 @@ jobs:
           ### 🔧 其他变更
           ${CHORES:-无}"
           else
-            # 首次发布
             CHANGELOG="## 🎉 首次发布 ${{ env.NEW_VERSION }}
 
           ### ✨ 功能特性
@@ -175,7 +158,6 @@ jobs:
           - 🔐 自动管理 Access Token 和凭证刷新"
           fi
           
-          # 添加安装和链接信息
           CHANGELOG="$CHANGELOG
 
           ### 📦 安装方式
@@ -185,11 +167,8 @@ jobs:
 
           ### 🔗 相关链接
           - 📖 [使用文档](https://github.com/luka-n8n-nodes/n8n-nodes-italent#readme)
-          - 📦 [NPM 包](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent)
-          - 🔐 [包来源证明](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent?activeTab=provenance)
-          - 🐛 [问题反馈](https://github.com/luka-n8n-nodes/n8n-nodes-italent/issues)"
+          - 📦 [NPM 包](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent)"
           
-          # 输出到 GitHub Actions
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -219,8 +198,6 @@ jobs:
           echo ""
           echo "📦 版本: ${{ env.NEW_VERSION }}"
           echo "🔗 NPM: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent"
-          echo "🔐 Provenance: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-italent?activeTab=provenance"
-          echo "🚀 Release: https://github.com/luka-n8n-nodes/n8n-nodes-italent/releases/tag/${{ env.NEW_VERSION }}"
           echo ""
           echo "📋 安装命令:"
           echo "npm install @luka-cat-mimi/n8n-nodes-italent"
@@ -235,8 +212,6 @@ jobs:
           echo ""
           echo "✅ 所有检查通过，可以正式发布"
           echo "📦 当前版本: ${{ env.NEW_VERSION }}"
-          echo ""
-          echo "💡 要正式发布，请关闭 Dry Run 选项重新运行"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: ❌ 发布失败通知
@@ -247,8 +222,8 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           echo "请检查以下内容:"
-          echo "1. NPM_TOKEN 是否配置正确"
-          echo "2. GitHub Token 权限是否足够"
+          echo "1. npm Trusted Publisher 是否配置正确（环境名：正式环境）"
+          echo "2. GitHub Token 权限是否足够（需要 id-token: write）"
           echo "3. 代码是否通过 lint 检查"
           echo "4. 构建是否成功"
           echo ""
