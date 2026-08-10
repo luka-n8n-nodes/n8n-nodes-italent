@@ -33,8 +33,10 @@
     "dev": "tsc --watch",
     "format": "prettier credentials nodes --write",
     "lint": "eslint \"credentials/**/*.ts\" \"nodes/**/*.ts\" package.json",
-    "lintfix": "eslint \"credentials/**/*.ts\" \"nodes/**/*.ts\" package.json --fix",
-    "prepublishOnly": "npm run build && npm run lint"
+    "prepublishOnly": "n8n-node prerelease",
+    "build:watch": "tsc --watch",
+    "lint:fix": "eslint \"credentials/**/*.ts\" \"nodes/**/*.ts\" package.json --fix",
+    "release": "n8n-node release"
   },
   "files": [
     "dist"
@@ -46,17 +48,18 @@
     ],
     "nodes": [
       "dist/nodes/ITalent/ITalent.node.js"
-    ]
+    ],
+    "strict": false
   },
   "devDependencies": {
-    "@n8n/node-cli": "^0.17.2",
+    "@n8n/node-cli": "*",
     "@types/node": "^20.19.43",
-    "eslint": "^9.39.5",
+    "eslint": "9.39.4",
     "gulp": "^5.0.0",
-    "prettier": "^3.9.6",
-    "release-it": "^19.0.4",
+    "prettier": "3.8.3",
+    "release-it": "20.2.0",
     "require-glob": "^4.1.0",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
